@@ -1,0 +1,279 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+enum UserStatus {
+  pending
+  approved
+  rejected
+  suspended
+}
+
+enum RegistrationStatus {
+  pending
+  approved
+  rejected
+}
+
+enum QuizType {
+  QUIZ
+  SCENARIO
+}
+
+enum HelpScope {
+  SCHOOL
+  HOME
+  SAFETY_STEPS
+}
+
+model Role {
+  id          Int      @id @default(autoincrement())
+  code        String   @unique
+  name        String
+  description String
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  users User[]
+
+  @@map("roles")
+}
+
+model User {
+  id           String     @id @default(cuid())
+  roleId       Int        @map("role_id")
+  fullName     String     @map("full_name")
+  email        String     @unique
+  gradeLevel   String?    @map("grade_level")
+  passwordHash String     @map("password_hash")
+  status       UserStatus @default(pending)
+  createdAt    DateTime   @default(now()) @map("created_at")
+  updatedAt    DateTime   @updatedAt @map("updated_at")
+
+  role                  Role                  @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  registrationRequest   RegistrationRequest?  @relation("ApplicantUser")
+  reviewedRegistrations RegistrationRequest[] @relation("ReviewerAdmin")
+  createdMaterials      Material[]            @relation("MaterialAuthor")
+  createdQuizzes        Quiz[]                @relation("QuizAuthor")
+  quizAttempts          QuizAttempt[]
+  materialProgress      MaterialProgress[]
+  auditLogs             AuditLog[]            @relation("AuditActor")
+
+  @@index([roleId])
+  @@index([status])
+  @@map("users")
+}
+
+model RegistrationRequest {
+  id            String             @id @default(cuid())
+  userId        String             @unique @map("user_id")
+  referenceCode String             @unique @map("reference_code")
+  reasonNote    String?            @map("reason_note")
+  status        RegistrationStatus @default(pending)
+  reviewedById  String?            @map("reviewed_by")
+  reviewNote    String?            @map("review_note")
+  reviewedAt    DateTime?          @map("reviewed_at")
+  createdAt     DateTime           @default(now()) @map("created_at")
+  updatedAt     DateTime           @updatedAt @map("updated_at")
+
+  user       User  @relation("ApplicantUser", fields: [userId], references: [id], onDelete: Cascade)
+  reviewedBy User? @relation("ReviewerAdmin", fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  @@index([status])
+  @@index([createdAt])
+  @@map("registration_requests")
+}
+
+model MaterialCategory {
+  id          String   @id @default(cuid())
+  slug        String   @unique
+  name        String
+  description String
+  iconName    String   @default("book-open") @map("icon_name")
+  sortOrder   Int      @default(0) @map("sort_order")
+  isPublished Boolean  @default(true) @map("is_published")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  materials Material[]
+  quizzes   Quiz[]
+
+  @@index([sortOrder])
+  @@map("material_categories")
+}
+
+model Material {
+  id               String   @id @default(cuid())
+  categoryId       String   @map("category_id")
+  slug             String   @unique
+  title            String
+  summary          String
+  content          String
+  keyPointsJson    String   @default("[]") @map("key_points_json")
+  examplesJson     String   @default("[]") @map("examples_json")
+  readingMinutes   Int      @default(5) @map("reading_minutes")
+  sortOrder        Int      @default(0) @map("sort_order")
+  isPublished      Boolean  @default(true) @map("is_published")
+  createdById      String?  @map("created_by")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  category  MaterialCategory   @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  createdBy User?              @relation("MaterialAuthor", fields: [createdById], references: [id], onDelete: SetNull)
+  progress  MaterialProgress[]
+
+  @@index([categoryId, sortOrder])
+  @@index([isPublished])
+  @@map("materials")
+}
+
+model MaterialProgress {
+  id          String   @id @default(cuid())
+  userId      String   @map("user_id")
+  materialId  String   @map("material_id")
+  completedAt DateTime @default(now()) @map("completed_at")
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  material Material @relation(fields: [materialId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, materialId])
+  @@index([userId])
+  @@map("material_progress")
+}
+
+model Quiz {
+  id          String   @id @default(cuid())
+  categoryId  String?  @map("category_id")
+  slug        String   @unique
+  title       String
+  description String
+  type        QuizType @default(QUIZ)
+  isPublished Boolean  @default(true) @map("is_published")
+  sortOrder   Int      @default(0) @map("sort_order")
+  createdById String?  @map("created_by")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  category  MaterialCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  createdBy User?             @relation("QuizAuthor", fields: [createdById], references: [id], onDelete: SetNull)
+  questions QuizQuestion[]
+  attempts  QuizAttempt[]
+
+  @@index([type, isPublished, sortOrder])
+  @@map("quizzes")
+}
+
+model QuizQuestion {
+  id              String   @id @default(cuid())
+  quizId          String   @map("quiz_id")
+  prompt          String
+  scenarioContext String?  @map("scenario_context")
+  sortOrder       Int      @default(0) @map("sort_order")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  quiz    Quiz         @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  options QuizOption[]
+  answers QuizAnswer[]
+
+  @@index([quizId, sortOrder])
+  @@map("quiz_questions")
+}
+
+model QuizOption {
+  id            String  @id @default(cuid())
+  questionId    String  @map("question_id")
+  label         String
+  optionText    String  @map("option_text")
+  isRecommended Boolean @default(false) @map("is_recommended")
+  feedbackText  String  @map("feedback_text")
+  sortOrder     Int     @default(0) @map("sort_order")
+
+  question QuizQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  answers  QuizAnswer[]
+
+  @@index([questionId, sortOrder])
+  @@map("quiz_options")
+}
+
+model QuizAttempt {
+  id               String   @id @default(cuid())
+  quizId           String   @map("quiz_id")
+  userId           String   @map("user_id")
+  recommendedCount Int      @default(0) @map("recommended_count")
+  totalQuestions   Int      @default(0) @map("total_questions")
+  completedAt      DateTime @default(now()) @map("completed_at")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  quiz    Quiz         @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  user    User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  answers QuizAnswer[]
+
+  @@index([userId, quizId])
+  @@index([completedAt])
+  @@map("quiz_attempts")
+}
+
+model QuizAnswer {
+  id               String   @id @default(cuid())
+  attemptId        String   @map("attempt_id")
+  questionId       String   @map("question_id")
+  selectedOptionId String   @map("selected_option_id")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  attempt        QuizAttempt  @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  question       QuizQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  selectedOption QuizOption   @relation(fields: [selectedOptionId], references: [id], onDelete: Cascade)
+
+  @@unique([attemptId, questionId])
+  @@map("quiz_answers")
+}
+
+model HelpResource {
+  id              String    @id @default(cuid())
+  title           String
+  audienceScope   HelpScope @map("audience_scope")
+  summary         String
+  whenToReachOut  String    @map("when_to_reach_out")
+  stepsJson       String    @default("[]") @map("steps_json")
+  contactRole     String    @map("contact_role")
+  sortOrder       Int       @default(0) @map("sort_order")
+  isPublished     Boolean   @default(true) @map("is_published")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  @@index([audienceScope, isPublished, sortOrder])
+  @@map("help_resources")
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  actorUserId String?  @map("actor_user_id")
+  action      String
+  targetType  String   @map("target_type")
+  targetId    String   @map("target_id")
+  metadata    String   @default("{}") @map("metadata_json")
+  ipAddress   String?  @map("ip_address")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  actor User? @relation("AuditActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([actorUserId])
+  @@index([targetType, targetId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+model LoginAttempt {
+  id          String    @id @default(cuid())
+  identifier  String    @unique
+  attempts    Int       @default(0)
+  lockedUntil DateTime? @map("locked_until")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  @@map("login_attempts")
+}
